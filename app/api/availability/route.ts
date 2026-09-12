@@ -1,5 +1,74 @@
-import { env } from "cloudflare:workers";
+import { getSupabase } from "@/lib/supabase";
+
 export const dynamic = "force-dynamic";
-const colors=["#6557e8","#e36b5d","#37a885","#d79a30","#4c87d9","#c65aa6"];
-export async function GET(request:Request){try{const id=new URL(request.url).searchParams.get("meetingId");if(!id)return Response.json([]);const r=await env.DB.prepare("SELECT participant_name, slot FROM availability WHERE meeting_id = ? ORDER BY participant_name, slot").bind(id).all();const g=new Map<string,number[]>();for(const row of r.results as {participant_name:string;slot:number}[])g.set(row.participant_name,[...(g.get(row.participant_name)??[]),row.slot]);return Response.json([...g].map(([name,slots],i)=>({name,slots,color:colors[i%colors.length]})))}catch{return Response.json({error:"database unavailable"},{status:503})}}
-export async function POST(request:Request){try{const {meetingId,name,slots}=await request.json();if(!Number.isInteger(meetingId)||typeof name!=="string"||!Array.isArray(slots))return Response.json({error:"invalid input"},{status:400});const clean=[...new Set(slots.filter((s)=>Number.isInteger(s)&&s>=0&&s<336))] as number[];await env.DB.batch([env.DB.prepare("DELETE FROM availability WHERE meeting_id = ? AND participant_name = ?").bind(meetingId,name.trim()),...clean.map(s=>env.DB.prepare("INSERT INTO availability (meeting_id, participant_name, slot) VALUES (?, ?, ?)").bind(meetingId,name.trim(),s))]);return Response.json({ok:true})}catch{return Response.json({error:"database unavailable"},{status:503})}}
+const colors = ["#6557e8", "#e36b5d", "#37a885", "#d79a30", "#4c87d9", "#c65aa6"];
+
+function unavailable() {
+  return Response.json({ error: "Supabase is not configured" }, { status: 503 });
+}
+
+export async function GET(request: Request) {
+  const supabase = getSupabase();
+  if (!supabase) return unavailable();
+
+  const meetingId = new URL(request.url).searchParams.get("meetingId");
+  if (!meetingId) return Response.json([]);
+
+  const { data, error } = await supabase
+    .from("availability")
+    .select("participant_name, slot")
+    .eq("meeting_id", meetingId)
+    .order("participant_name")
+    .order("slot");
+
+  if (error) return Response.json({ error: error.message }, { status: 500 });
+
+  const entries = new Map<string, number[]>();
+  for (const row of data) {
+    entries.set(row.participant_name, [
+      ...(entries.get(row.participant_name) ?? []),
+      row.slot,
+    ]);
+  }
+
+  return Response.json(
+    [...entries].map(([name, slots], index) => ({
+      name,
+      slots,
+      color: colors[index % colors.length],
+    })),
+  );
+}
+
+export async function POST(request: Request) {
+  const supabase = getSupabase();
+  if (!supabase) return unavailable();
+
+  const { meetingId, name, slots } = await request.json();
+  if (typeof meetingId !== "string" || typeof name !== "string" || !Array.isArray(slots)) {
+    return Response.json({ error: "invalid input" }, { status: 400 });
+  }
+
+  const participantName = name.trim();
+  const cleanSlots = [...new Set(slots.filter((slot) => Number.isInteger(slot) && slot >= 0 && slot < 336))];
+  const { error: deleteError } = await supabase
+    .from("availability")
+    .delete()
+    .eq("meeting_id", meetingId)
+    .eq("participant_name", participantName);
+
+  if (deleteError) return Response.json({ error: deleteError.message }, { status: 500 });
+  if (cleanSlots.length === 0) return Response.json({ ok: true });
+
+  const { error: insertError } = await supabase.from("availability").insert(
+    cleanSlots.map((slot) => ({
+      meeting_id: meetingId,
+      participant_name: participantName,
+      slot,
+    })),
+  );
+
+  return insertError
+    ? Response.json({ error: insertError.message }, { status: 500 })
+    : Response.json({ ok: true });
+}
