@@ -1,0 +1,3 @@
+import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+export const meetings = sqliteTable("meetings", { id: integer("id").primaryKey({ autoIncrement: true }), name: text("name").notNull(), createdAt: text("created_at").notNull().default("CURRENT_TIMESTAMP") });
+export const availability = sqliteTable("availability", { id: integer("id").primaryKey({ autoIncrement: true }), meetingId: integer("meeting_id").notNull().references(() => meetings.id, { onDelete: "cascade" }), participantName: text("participant_name").notNull(), slot: integer("slot").notNull() }, (t) => [index("idx_availability_meeting_slot").on(t.meetingId, t.slot), uniqueIndex("idx_availability_person_slot").on(t.meetingId, t.participantName, t.slot)]);
