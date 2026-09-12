@@ -24,7 +24,7 @@ export async function POST(request: Request) {
   const supabase = getSupabase();
   if (!supabase) return unavailable();
 
-  const { name } = await request.json();
+  const { name } = (await request.json()) as { name?: unknown };
   if (typeof name !== "string" || !name.trim()) {
     return Response.json({ error: "name required" }, { status: 400 });
   }

@@ -44,7 +44,11 @@ export async function POST(request: Request) {
   const supabase = getSupabase();
   if (!supabase) return unavailable();
 
-  const { meetingId, name, slots } = await request.json();
+  const { meetingId, name, slots } = (await request.json()) as {
+    meetingId?: unknown;
+    name?: unknown;
+    slots?: unknown;
+  };
   if (typeof meetingId !== "string" || typeof name !== "string" || !Array.isArray(slots)) {
     return Response.json({ error: "invalid input" }, { status: 400 });
   }
